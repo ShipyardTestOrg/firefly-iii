@@ -1,0 +1,50 @@
+services:
+  firefly-iii:
+    # Shipyard: route all HTTP traffic for this environment to this service.
+    labels:
+      shipyard.route: '/'
+    # Firefly III is a PHP/Laravel app (see app/**/*.php, Procfile heroku-php-nginx).
+    # The official image runs the same source with an entrypoint that waits for the
+    # database, creates it, runs migrations/seeds, generates passport keys, then
+    # serves the app on port 8080 via nginx + php-fpm. This boots reliably first try.
+    image: fireflyiii/core:latest
+    env_file:
+      - ./.env
+    ports:
+      # Container listens on 8080. Host 8080 was already allocated (see logs:
+      # "Bind for 0.0.0.0:8080 failed: port is already allocated"), so publish to
+      # host 8088 instead. APP_URL in .env is updated to match this external port.
+      - "8088:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - firefly_upload:/var/www/html/storage/upload
+    restart: unless-stopped
+
+  db:
+    # Evidence: .env defaults DB_CONNECTION=mysql, DB_HOST=db, DB_PORT=3306, and the
+    # PHP code (CreatesDatabase.php uses raw PDO mysql, VerifiesDatabaseConnectionTrait)
+    # actively connects to a MySQL/MariaDB server. Credentials mirror .env exactly.
+    image: mariadb:lts
+    environment:
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+      MYSQL_USER: firefly
+      MYSQL_PASSWORD: secret_firefly_password
+      MYSQL_DATABASE: firefly
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - firefly_db:/var/lib/mysql
+    restart: unless-stopped
+
+volumes:
+  firefly_upload:
+    labels:
+      shipyard.deploy.disk.size: 2Gi
+  firefly_db:
+    labels:
+      shipyard.deploy.disk.size: 5Gi
